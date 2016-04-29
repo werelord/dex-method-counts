@@ -30,10 +30,12 @@ import java.util.zip.ZipException;
 import java.util.zip.ZipFile;
 
 public class Main {
+    private boolean countFields;
     private boolean includeClasses;
     private String packageFilter;
     private int maxDepth = Integer.MAX_VALUE;
     private DexMethodCounts.Filter filter = DexMethodCounts.Filter.ALL;
+    private DexMethodCounts.OutputStyle outputStyle = DexMethodCounts.OutputStyle.TREE;
 
     public static void main(String[] args) {
         Main main = new Main();
@@ -43,22 +45,27 @@ public class Main {
     void run(String[] args) {
         try {
             String[] inputFileNames = parseArgs(args);
+            int overallCount = 0;
             for (String fileName : collectFileNames(inputFileNames)) {
                 System.out.println("Processing " + fileName);
+                DexCount counts;
+                if (countFields) {
+                    counts = new DexFieldCounts(outputStyle);
+                } else {
+                    counts = new DexMethodCounts(outputStyle);
+                }
                 List<RandomAccessFile> dexFiles = openInputFiles(fileName);
-                DexMethodCounts.Node packageTree = new DexMethodCounts.Node();
 
                 for (RandomAccessFile dexFile : dexFiles) {
                     DexData dexData = new DexData(dexFile);
                     dexData.load();
-                    DexMethodCounts.generate(
-                            packageTree, dexData, includeClasses, packageFilter, maxDepth, filter);
+                    counts.generate(dexData, includeClasses, packageFilter, maxDepth, filter);
                     dexFile.close();
                 }
-
-                packageTree.output("");
+                counts.output();
+                overallCount = counts.getOverallCount();
             }
-            System.out.println("Overall method count: " + DexMethodCounts.overallCount);
+            System.out.println(String.format("Overall %s count: %d", countFields ? "field" : "method", overallCount));
         } catch (UsageException ue) {
             usage();
             System.exit(2);
@@ -158,6 +165,8 @@ public class Main {
 
             if (arg.equals("--") || !arg.startsWith("--")) {
                 break;
+            } else if (arg.equals("--count-fields")) {
+                countFields = true;
             } else if (arg.equals("--include-classes")) {
                 includeClasses = true;
             } else if (arg.startsWith("--package-filter=")) {
@@ -168,6 +177,10 @@ public class Main {
             } else if (arg.startsWith("--filter=")) {
                 filter = Enum.valueOf(
                     DexMethodCounts.Filter.class,
+                    arg.substring(arg.indexOf('=') + 1).toUpperCase());
+            } else if (arg.startsWith("--output-style")) {
+                outputStyle = Enum.valueOf(
+                    DexMethodCounts.OutputStyle.class,
                     arg.substring(arg.indexOf('=') + 1).toUpperCase());
             } else {
                 System.err.println("Unknown option '" + arg + "'");
@@ -187,12 +200,15 @@ public class Main {
 
     private void usage() {
         System.err.print(
-            "DEX per-package/class method counts v1.0\n" +
+            "DEX per-package/class method counts v1.5\n" +
             "Usage: dex-method-counts [options] <file.{dex,apk,jar,directory}> ...\n" +
             "Options:\n" +
+            "  --count-fields\n" +
             "  --include-classes\n" +
             "  --package-filter=com.foo.bar\n" +
-            "  --max-depth=N\n"
+            "  --max-depth=N\n" +
+            "  --filter=ALL|DEFINED_ONLY|REFERENCED_ONLY\n" +
+            "  --output-style=FLAT|TREE\n"
         );
     }
 
